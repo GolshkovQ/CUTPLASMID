@@ -401,19 +401,21 @@ def create_pam_logo_combined(compinedPAMscore, combinedPAMlogo, UpstreamLen, Dow
 
     xannotation = [str(i) for i in range(-int(UpstreamLen), 0)] + [str(i) for i in range(1, int(DownstreamLen)+1)]
     xannotation = ",".join(xannotation)
-    logoCMD = "weblogo -f "+compinedPAMscore+" -o "+combinedPAMlogo+" -F jpeg --title combined # 100 --size large --annotate "+xannotation+" --color blue C 'C' --color red T 'T' --color green A 'A' --color orange G 'G' --fineprint CUTPLASMID"
+    logoCMD = "weblogo -f "+compinedPAMscore+" -o "+combinedPAMlogo+" -F jpeg --title combined --size large --annotate "+xannotation+" --color blue C 'C' --color red T 'T' --color green A 'A' --color orange G 'G' --fineprint CUTPLASMID"
     os.system(logoCMD)
 
     return True
 
 def create_pam_logo(PAMscoreFile, PAMlogoFile, directions, PAMlen, overall_confidence_score):
     if directions == "upstream":
-        xannotation = [str(i) for i in range(-int(PAMlen),-1)]
+        xannotation = [str(i) for i in range(-int(PAMlen),0)]
     else:
         xannotation = [str(i) for i in range(1, int(PAMlen)+1)]
     
+    overall_confidence_score = round(overall_confidence_score, 4)
+
     xannotation = ",".join(xannotation)
-    logoCMD = "weblogo -f "+PAMscoreFile+" -o "+PAMlogoFile+" -F jpeg --title "+directions+" # "+str(overall_confidence_score)+" --size large --annotate "+xannotation+" --color blue C 'C' --color red T 'T' --color green A 'A' --color orange G 'G' --fineprint CUTPLASMID"
+    logoCMD = "weblogo -f "+PAMscoreFile+" -o "+PAMlogoFile+" -F jpeg --title "+directions+"-"+str(overall_confidence_score)+" --size large --annotate "+xannotation+" --color blue C 'C' --color red T 'T' --color green A 'A' --color orange G 'G' --fineprint CUTPLASMID"
     os.system(logoCMD)
 
     return True
