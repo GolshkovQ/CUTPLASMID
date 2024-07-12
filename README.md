@@ -75,5 +75,3 @@ python cutplasmid.py -e experiment1.fastq,experiment2.fastq -c control1.fastq,co
 This tool was developed by Chen QI, Baitao LI, and collaborators from BNU-HKBU United International College, University of Chinese Academy of Sciences, and BGI Research.
 
 For any questions or support, please contact [qichen@uic.edu.cn].
-
-```
