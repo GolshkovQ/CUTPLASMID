@@ -288,14 +288,19 @@ def read_and_prepare_data(rawfile):
     data['DifferenceScaled'] = scaler.fit_transform(data['DifferenceSmooth'].values.reshape(-1, 1))
     data['ZscoreScaled'] = zscore(data['DifferenceScaled'])
 
-    _, p_values = ttest_ind(data['LogExperiment'], data['LogControl'], equal_var=False)
+    # Calculate p-values for each row
+    p_values = []
+    for i, row in data.iterrows():
+        _, p_value = ttest_ind([row[exp_col] for exp_col in experiment_cols],
+                               [row[ctrl_col] for ctrl_col in control_cols], equal_var=False)
+        p_values.append(p_value)
     data['p_value'] = p_values
-
 
     data['GC_content'] = data['PAM'].apply(lambda x: (x.count('G') + x.count('C')) / len(x))
     data['Length'] = data['PAM'].apply(len)
 
     return data, experiment_cols, control_cols
+
 
 def train_model(X_train, y_train):
     clf = RandomForestClassifier()
@@ -412,8 +417,6 @@ def create_pam_logo(PAMscoreFile, PAMlogoFile, directions, PAMlen, overall_confi
     else:
         xannotation = [str(i) for i in range(1, int(PAMlen)+1)]
     
-    overall_confidence_score = round(overall_confidence_score, 4)
-
     xannotation = ",".join(xannotation)
     logoCMD = "weblogo -f "+PAMscoreFile+" -o "+PAMlogoFile+" -F jpeg --title "+directions+"-"+str(overall_confidence_score)+" --size large --annotate "+xannotation+" --color blue C 'C' --color red T 'T' --color green A 'A' --color orange G 'G' --fineprint CUTPLASMID"
     os.system(logoCMD)
@@ -482,32 +485,49 @@ def visualize_fastp_results(fastp_dir, output_dir):
     plt.savefig(os.path.join(output_dir, "fastp_summary_plots.png"))
     plt.close()
 
-def Process_file(PAMCountFile, PAMscoreFile, PAMlogoFile, evalROC, evalPRC, clfReportFile, PAMlen, directions, tempfile):
-    print_status("Reading and preparing data for "+PAMCountFile)
+def Process_file(PAMCountFile, PAMscoreFile, PAMlogoFile, evalROC, evalPRC, clfReportFile, PAMlen, directions, tempfile, log2fc_threshold=-1):
+    print_status("Reading and preparing data for " + PAMCountFile)
     data, experiment_cols, control_cols = read_and_prepare_data(PAMCountFile)
     if tempfile:
         data.to_csv(tempfile, sep="\t", index=False)
 
     X = data[['LogExperiment', 'LogControl', 'GC_content', 'Length']]
     
-    # Debug: Check the distribution of 'ZscoreScaled' and 'p_value'
+    # Debug: Check the distribution of 'Difference' and 'p_value'
+    print("Distribution of Difference (log2FC):")
+    print(data['Difference'].describe())
+    print("Distribution of p_value:")
+    print(data['p_value'].describe())
 
     # Adjust condition if necessary
-    condition = (data['ZscoreScaled'] < -1.65) & (data['p_value'] < 0.05)
-    if not condition.any():
-        print("No samples meet the condition, adjusting condition...")
-        condition = (data['ZscoreScaled'] < -1) & (data['p_value'] < 0.1)
-        if not condition.any():
-            print("Still no samples meet the condition, adjusting condition further...")
-            condition = (data['ZscoreScaled'] < 0) & (data['p_value'] < 0.5)
-    y = condition
+    def adjust_condition(data, log2fc_threshold):
+        condition = (data['Difference'] < log2fc_threshold) & (data['p_value'] < 0.05)
+        print(f"Samples meeting the first condition: {condition.sum()}")
+        if condition.sum() <= 3:
+            print("Adjusting condition...")
+            condition = (data['Difference'] < log2fc_threshold + 0.5) & (data['p_value'] < 0.1)
+            print(f"Samples meeting the second condition: {condition.sum()}")
+            if condition.sum() <= 3:
+                print("Adjusting condition further...")
+                condition = (data['Difference'] < log2fc_threshold + 1.0) & (data['p_value'] < 0.5)
+                print(f"Samples meeting the third condition: {condition.sum()}")
+        return condition
 
+    y = adjust_condition(data, log2fc_threshold)
+    
     unique_classes = np.unique(y)
+    
     if len(unique_classes) != 2:
-        raise ValueError("Expected y to have 2 unique classes, but got: {}".format(unique_classes))
+        print(f"Expected y to have 2 unique classes, but got: {unique_classes}")
+        if len(unique_classes) == 1 and unique_classes[0] == False:
+            print("Reason: No samples meet the condition to be classified as True.")
+            print("Adjust your conditions or check your data to ensure there are samples that can be classified as True.")
+        sys.exit(1)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
+    print(f"Number of samples in each class: {np.bincount(y)}")
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+    
     best_clf = train_model(X_train, y_train)
     data['ML_significant'] = best_clf.predict(X)
 
@@ -519,6 +539,10 @@ def Process_file(PAMCountFile, PAMscoreFile, PAMlogoFile, evalROC, evalPRC, clfR
     else:
         raise ValueError("Unexpected shape of y_pred_proba_cv: {}".format(y_pred_proba_cv.shape))
 
+    if len(np.unique(y_train)) != 2 or len(np.unique(y_test)) != 2:
+        print("Training or testing set does not have both classes. Skipping evaluation.")
+        return
+    
     evaluate_model(best_clf, X_test, y_test, evalROC, evalPRC)
     save_classification_report(best_clf, X_test, y_test, clfReportFile)
 
@@ -818,4 +842,5 @@ def main():
     
 if __name__ == '__main__':
     main()
+
 
